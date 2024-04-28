@@ -62,7 +62,7 @@ const userSchema = new mongoose.Schema({
   otp: {
     type: String,
   },
-  otp_expiry_time: {
+  otpExpirationTime: {
     type: Date,
   },
   friends: [

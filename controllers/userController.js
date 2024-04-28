@@ -3,7 +3,7 @@ const FriendRequest = require("../models/friendRequest");
 const User = require("../models/user");
 const VideoCall = require("../models/videoCall");
 const catchAsync = require("../utils/catchAsync");
-const filterObj = require("../utils/filterObj");
+const sanitizeObject = require("../utils/sanitizeObject");
 
 const { generateToken04 } = require("./zegoServerAssistant");
 
@@ -23,7 +23,7 @@ exports.getMe = catchAsync(async (req, res, next) => {
 });
 
 exports.updateMe = catchAsync(async (req, res, next) => {
-  const filteredBody = filterObj(
+  const sanitizedObject = sanitizeObject(
     req.body,
     "firstName",
     "lastName",
@@ -31,7 +31,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     "avatar"
   );
 
-  const userDoc = await User.findByIdAndUpdate(req.user._id, filteredBody);
+  const userDoc = await User.findByIdAndUpdate(req.user._id, sanitizedObject);
 
   res.status(200).json({
     status: "success",

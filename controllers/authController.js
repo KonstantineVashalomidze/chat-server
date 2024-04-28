@@ -1,28 +1,28 @@
-const jwt = require("jsonwebtoken");
-const otpGenerator = require("otp-generator");
-const mailService = require("../services/mailer");
-const crypto = require("crypto");
+// Required modules
+const jwt = require("jsonwebtoken"); // For generating JSON Web Tokens
+const otpGenerator = require("otp-generator"); // For generating OTPs
+const mailService = require("../services/mailer"); // For sending emails
+const crypto = require("crypto"); // For cryptographic operations
+const { promisify } = require("util"); // For converting callback-based functions to promise-based
+const catchAsync = require("../utils/catchAsync"); // For handling asynchronous errors
 
-const filterObj = require("../utils/filterObj");
+// Utility functions and custom modules
+const sanitizeObject = require("../utils/sanitizeObject"); // For sanitizing objects
+const User = require("../models/user"); // User model
+const otp = require("../Templates/Mail/otp"); // Template for OTP email
+const resetPassword = require("../Templates/Mail/resetPassword"); // Template for reset password email
+require('dotenv').config(); // Load ENV
 
-// Model
-const User = require("../models/user");
-const otp = require("../Templates/Mail/otp");
-const resetPassword = require("../Templates/Mail/resetPassword");
-const { promisify } = require("util");
-const catchAsync = require("../utils/catchAsync");
+// Function to generate a JWT (JSON Web Token) for a given user ID
+const generateJWT = (userId) => jwt.sign({ userId }, process.env.JWT_SECRET);
 
-// this function will return you jwt token
-const signToken = (userId) => jwt.sign({ userId }, process.env.JWT_SECRET);
-
-// Register New User
-
-
-
-exports.register = catchAsync(async (req, res, next) => {
+// Middleware function to handle user signup
+exports.signup = catchAsync(async (req, res, next) => {
+  // Extract relevant fields from request body
   const { firstName, lastName, email, password } = req.body;
 
-  const filteredBody = filterObj(
+  // Sanitize the request body to include only specific fields
+  const sanitizedObject = sanitizeObject(
     req.body,
     "firstName",
     "lastName",
@@ -30,69 +30,74 @@ exports.register = catchAsync(async (req, res, next) => {
     "password"
   );
 
-  // check if a verified user with given email exists
 
-  const existing_user = await User.findOne({ email: email });
+  // Check if a user with the given email already exists in the database
+  const user = await User.findOne({ email: email });
 
-  if (existing_user && existing_user.verified) {
-    // user with this email already exists, Please login
+  if (user && user.verified) {
+    // If a verified user with this email exists, return an error response
     return res.status(400).json({
       status: "error",
-      message: "Email already in use, Please login.",
+      message: "This email is already in use, Log In instead.",
     });
-  } else if (existing_user) {
-    // if not verified than update prev one
+  } else if (user) {
+    // If a user with this email exists but is not verified, update their information
+    await User.findOneAndUpdate(
+        { email: email }, // Filter for finding the user to update
+        sanitizedObject, // Data to update with
+        {new: true, validateModifiedOnly: true,} // Options: return the updated document, and validate only modified paths
+    );
 
-    await User.findOneAndUpdate({ email: email }, filteredBody, {
-      new: true,
-      validateModifiedOnly: true,
-    });
-
-    // generate an otp and send to email
-    req.userId = existing_user._id;
-    next();
+    // Generate an OTP (One-Time Password) and send it to the user's email
+    req.userId = user._id; // Set the user ID in the request object
+    next(); // Move to the next middleware function
   } else {
-    // if user is not created before than create a new one
-    const new_user = await User.create(filteredBody);
+    // If a user with this email does not exist, create a new user
 
-    // generate an otp and send to email
-    req.userId = new_user._id;
+    // Create a new user with the sanitized data
+    const newUser = await User.create(sanitizedObject);
+
+    // Generate an OTP and send it to the user's email
+    req.userId = newUser._id;
     next();
   }
 });
 
+// Middleware function to send OTP (One-Time Password) to the user's email
 exports.sendOTP = catchAsync(async (req, res, next) => {
-  const { userId } = req;
-  const new_otp = otpGenerator.generate(6, {
+  const { userId } = req; // Extract user ID from request
+  // Generate a new OTP (6 digits) without special characters
+  const newOtp = otpGenerator.generate(6, {
     upperCaseAlphabets: false,
     specialChars: false,
     lowerCaseAlphabets: false,
   });
 
-  const otp_expiry_time = Date.now() + 10 * 60 * 1000; // 10 Mins after otp is sent
+  // Calculate OTP expiry time (5 minutes after OTP is sent)
+  const otpExpirationTime = Date.now() + 5 * 60 * 1000;
 
+  // Find the user by ID and update OTP expiry time
   const user = await User.findByIdAndUpdate(userId, {
-    otp_expiry_time: otp_expiry_time,
+    otpExpirationTime: otpExpirationTime,
   });
 
-  user.otp = new_otp.toString();
+  user.otp = newOtp.toString(); // Update the user's OTP
 
-  await user.save({ new: true, validateModifiedOnly: true });
+  await user.save({ new: true, validateModifiedOnly: true });  // Save the updated user
 
-  console.log(new_otp);
-
-  // TODO send mail
+  // Send an email containing the OTP to the user
   mailService.sendEmail({
-    from: "giogiodagio3@gmail.com",
+    from: process.env.OTP_SENDER_EMAIL,
     to: user.email,
     subject: "Verification OTP",
-    html: otp(user.firstName, new_otp),
-    attachments: [],
+    html: otp(user.firstName, newOtp), // HTML content for the email body
+    attachments: [] // No attachments
   });
 
+  // Respond with success status and message
   res.status(200).json({
     status: "success",
-    message: "OTP Sent Successfully!",
+    message: "OTP was sent to the " + user.email
   });
 });
 
@@ -101,7 +106,7 @@ exports.verifyOTP = catchAsync(async (req, res, next) => {
   const { email, otp } = req.body;
   const user = await User.findOne({
     email,
-    otp_expiry_time: { $gt: Date.now() },
+    otpExpirationTime: { $gt: Date.now() },
   });
 
   if (!user) {
@@ -133,7 +138,7 @@ exports.verifyOTP = catchAsync(async (req, res, next) => {
   user.otp = undefined;
   await user.save({ new: true, validateModifiedOnly: true });
 
-  const token = signToken(user._id);
+  const token = generateJWT(user._id);
 
   res.status(200).json({
     status: "success",
@@ -177,7 +182,7 @@ exports.login = catchAsync(async (req, res, next) => {
     return;
   }
 
-  const token = signToken(user._id);
+  const token = generateJWT(user._id);
 
   res.status(200).json({
     status: "success",
@@ -301,7 +306,7 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
 
   // 3) Update changedPasswordAt property for the user
   // 4) Log the user in, send JWT
-  const token = signToken(user._id);
+  const token = generateJWT(user._id);
 
   res.status(200).json({
     status: "success",
