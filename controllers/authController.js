@@ -87,7 +87,7 @@ exports.sendOTP = catchAsync(async (req, res, next) => {
 
   // Send an email containing the OTP to the user
   mailService.sendEmail({
-    from: process.env.OTP_SENDER_EMAIL,
+    from: process.env.SENDER_EMAIL,
     to: user.email,
     subject: "Verification OTP",
     html: otp(user.firstName, newOtp), // HTML content for the email body
@@ -101,21 +101,25 @@ exports.sendOTP = catchAsync(async (req, res, next) => {
   });
 });
 
+// Middleware function to verify OTP (One-Time Password) and update user accordingly
 exports.verifyOTP = catchAsync(async (req, res, next) => {
-  // verify otp and update user accordingly
-  const { email, otp } = req.body;
+  const { email, otp } = req.body; // Extract email and OTP from request body
+
+  // Find user with the provided email and valid OTP
   const user = await User.findOne({
     email,
-    otpExpirationTime: { $gt: Date.now() },
+    otpExpirationTime: { $gt: Date.now() }, // Check if OTP is still valid
   });
 
+  // If no user found or OTP expired, return error
   if (!user) {
     return res.status(400).json({
       status: "error",
-      message: "Email is invalid or OTP expired",
+      message: "Email is doesn't exist or OTP expired",
     });
   }
 
+  // If user is already verified, return error
   if (user.verified) {
     return res.status(400).json({
       status: "error",
@@ -123,38 +127,38 @@ exports.verifyOTP = catchAsync(async (req, res, next) => {
     });
   }
 
+  // If OTP is incorrect, return error
   if (!(await user.correctOTP(otp, user.otp))) {
     res.status(400).json({
       status: "error",
       message: "OTP is incorrect",
     });
-
     return;
   }
 
-  // OTP is correct
+  /* OTP is correct */
 
+  // Mark user as verified, clear OTP, and save changes
   user.verified = true;
   user.otp = undefined;
   await user.save({ new: true, validateModifiedOnly: true });
 
-  const token = generateJWT(user._id);
+  const token = generateJWT(user._id); // Generate JWT (JSON Web Token) for the user
 
+  // Respond with success status, token, and user ID
   res.status(200).json({
     status: "success",
     message: "OTP verified Successfully!",
     token,
-    user_id: user._id,
+    userId: user._id,
   });
 });
 
-// User Login
+// Middleware function to handle user login
 exports.login = catchAsync(async (req, res, next) => {
-  const { email, password } = req.body;
+  const { email, password } = req.body; // Extract email and password from request body
 
-  // console.log(email, password);
-
-  if (!email || !password) {
+  if (!email || !password) {   // Check if both email and password are provided
     res.status(400).json({
       status: "error",
       message: "Both email and password are required",
@@ -162,18 +166,19 @@ exports.login = catchAsync(async (req, res, next) => {
     return;
   }
 
+  // Find user by email in the database including password field
   const user = await User.findOne({ email: email }).select("+password");
 
-  if (!user || !user.password) {
+  if (!user || !user.password) { // If no user found or no password is set for the user, return error
     res.status(400).json({
       status: "error",
-      message: "Incorrect password",
+      message: "User was not found with such email or password is not set for this user",
     });
-
     return;
   }
 
-  if (!user || !(await user.correctPassword(password, user.password))) {
+  // Check if the provided password matches the user's password in the database or user is found with provided email
+  if (!user || !(await user.comparePasswords(password, user.password))) {
     res.status(400).json({
       status: "error",
       message: "Email or password is incorrect",
@@ -182,13 +187,14 @@ exports.login = catchAsync(async (req, res, next) => {
     return;
   }
 
-  const token = generateJWT(user._id);
+  const token = generateJWT(user._id); // Generate JWT (JSON Web Token) for the user
 
+  // Respond with success status, token, and user ID
   res.status(200).json({
     status: "success",
     message: "Logged in successfully!",
     token,
-    user_id: user._id,
+    userId: user._id,
   });
 });
 
@@ -236,43 +242,46 @@ exports.protect = catchAsync(async (req, res, next) => {
 });
 
 exports.forgotPassword = catchAsync(async (req, res, next) => {
-  // 1) Get user based on POSTed email
+  /* Find user based on provided email */
   const user = await User.findOne({ email: req.body.email });
-  if (!user) {
+
+  if (!user) { // If user not found, return error response
     return res.status(404).json({
       status: "error",
-      message: "There is no user with email address.",
+      message: "There is no user with such an email.",
     });
   }
 
-  // 2) Generate the random reset token
-  const resetToken = user.createPasswordResetToken();
-  await user.save({ validateBeforeSave: false });
+  /* Generate a random password reset token */
+  const resetToken = user.generatePasswordResetToken();
+  await user.save({ validateBeforeSave: false }); // Save the user with the new reset token (without validation)
 
-  // 3) Send it to user's email
+  /* Send the reset token to the user's email */
   try {
-    const resetURL = `http://localhost:3000/auth/new-password?token=${resetToken}`;
-    // TODO => Send Email with this Reset URL to user's email address
+    // Construct the reset URL using the reset token
+    const resetURL = `http://localhost:3001/auth/new-password?token=${resetToken}`;
 
-    console.log(resetURL);
-
+    // Email the user with the reset URL
     mailService.sendEmail({
-      from: "shreyanshshah242@gmail.com",
+      from: process.env.SENDER_EMAIL,
       to: user.email,
       subject: "Reset Password",
       html: resetPassword(user.firstName, resetURL),
-      attachments: [],
+      attachments: []
     });
 
+    // Respond with success status
     res.status(200).json({
       status: "success",
       message: "Token sent to email!",
     });
+
   } catch (err) {
+    // If there's an error sending the email, handle it
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save({ validateBeforeSave: false });
-
+    // Return error response
     return res.status(500).json({
       message: "There was an error sending the email. Try again later!",
     });
@@ -280,37 +289,40 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
 });
 
 exports.resetPassword = catchAsync(async (req, res, next) => {
-  // 1) Get user based on the token
+  /* Hash the token provided in the request body to match with stored hashed token */
   const hashedToken = crypto
     .createHash("sha256")
     .update(req.body.token)
     .digest("hex");
 
+  // Find user by hashed password reset token and check if token has not expired
   const user = await User.findOne({
     passwordResetToken: hashedToken,
-    passwordResetExpires: { $gt: Date.now() },
+    passwordResetExpires: { $gt: Date.now() } // Check if token is not expired
   });
 
-  // 2) If token has not expired, and there is user, set the new password
+// If token is invalid or expired, return error response
   if (!user) {
     return res.status(400).json({
       status: "error",
       message: "Token is Invalid or Expired",
     });
   }
+
+  /*  If token is valid and not expired, set the new password and clear reset token and expiration */
   user.password = req.body.password;
   user.passwordConfirm = req.body.passwordConfirm;
   user.passwordResetToken = undefined;
   user.passwordResetExpires = undefined;
-  await user.save();
+  await user.save(); // Save the updated user
 
-  // 3) Update changedPasswordAt property for the user
-  // 4) Log the user in, send JWT
+  /* Generate JWT (JSON Web Token) for the user */
   const token = generateJWT(user._id);
 
+  // Respond with success status and JWT
   res.status(200).json({
     status: "success",
-    message: "Password Reseted Successfully",
+    message: "Password updated Successfully",
     token,
   });
 });

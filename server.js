@@ -18,7 +18,7 @@ const { Server } = require("socket.io"); // Add this
 const { promisify } = require("util");
 const User = require("./models/user");
 const FriendRequest = require("./models/friendRequest");
-const OneToOneMessage = require("./models/OneToOneMessage");
+const OneToOneMessage = require("./models/oneToOneMessage");
 const AudioCall = require("./models/audioCall");
 const VideoCall = require("./models/videoCall");
 
@@ -57,13 +57,13 @@ server.listen(port, () => {
 // Listen for when the client connects via socket.io-client
 io.on("connection", async (socket) => {
   console.log(JSON.stringify(socket.handshake.query));
-  const user_id = socket.handshake.query["user_id"];
+  const userId = socket.handshake.query["userId"];
 
   console.log(`User connected ${socket.id}`);
 
-  if (user_id != null && Boolean(user_id)) {
+  if (userId != null && Boolean(userId)) {
     try {
-      User.findByIdAndUpdate(user_id, {
+      User.findByIdAndUpdate(userId, {
         socket_id: socket.id,
         status: "Online",
       });
@@ -121,9 +121,9 @@ io.on("connection", async (socket) => {
     });
   });
 
-  socket.on("get_direct_conversations", async ({ user_id }, callback) => {
+  socket.on("get_direct_conversations", async ({ userId }, callback) => {
     const existing_conversations = await OneToOneMessage.find({
-      participants: { $all: [user_id] },
+      participants: { $all: [userId] },
     }).populate("participants", "firstName lastName avatar _id email status");
 
     // db.books.find({ authors: { $elemMatch: { name: "John Smith" } } })
@@ -459,8 +459,8 @@ io.on("connection", async (socket) => {
   socket.on("end", async (data) => {
     // Find user by ID and set status as offline
 
-    if (data.user_id) {
-      await User.findByIdAndUpdate(data.user_id, { status: "Offline" });
+    if (data.userId) {
+      await User.findByIdAndUpdate(data.userId, { status: "Offline" });
     }
 
     // broadcast to all conversation rooms of this user that this user is offline (disconnected)

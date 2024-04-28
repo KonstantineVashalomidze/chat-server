@@ -83,7 +83,7 @@ function generateToken04(
   var createTime = Math.floor(new Date().getTime() / 1000);
   var tokenInfo = {
     app_id: appId,
-    user_id: userId,
+    userId: userId,
     nonce: makeNonce(),
     ctime: createTime,
     expire: createTime + effectiveTimeInSeconds,

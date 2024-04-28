@@ -112,7 +112,7 @@ userSchema.pre("save", function (next) {
   next();
 });
 
-userSchema.methods.correctPassword = async function (
+userSchema.methods.comparePasswords = async function (
   candidatePassword,
   userPassword
 ) {
@@ -136,7 +136,7 @@ userSchema.methods.changedPasswordAfter = function (JWTTimeStamp) {
   return false;
 };
 
-userSchema.methods.createPasswordResetToken = function () {
+userSchema.methods.generatePasswordResetToken = function () {
   const resetToken = crypto.randomBytes(32).toString("hex");
 
   this.passwordResetToken = crypto

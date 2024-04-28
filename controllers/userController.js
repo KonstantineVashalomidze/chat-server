@@ -193,23 +193,23 @@ exports.startVideoCall = catchAsync(async (req, res, next) => {
 });
 
 exports.getCallLogs = catchAsync(async (req, res, next) => {
-  const user_id = req.user._id;
+  const userId = req.user._id;
 
   const call_logs = [];
 
   const audio_calls = await AudioCall.find({
-    participants: { $all: [user_id] },
+    participants: { $all: [userId] },
   }).populate("from to");
 
   const video_calls = await VideoCall.find({
-    participants: { $all: [user_id] },
+    participants: { $all: [userId] },
   }).populate("from to");
 
   console.log(audio_calls, video_calls);
 
   for (let elm of audio_calls) {
     const missed = elm.verdict !== "Accepted";
-    if (elm.from._id.toString() === user_id.toString()) {
+    if (elm.from._id.toString() === userId.toString()) {
       const other_user = elm.to;
 
       // outgoing
@@ -239,7 +239,7 @@ exports.getCallLogs = catchAsync(async (req, res, next) => {
 
   for (let element of video_calls) {
     const missed = element.verdict !== "Accepted";
-    if (element.from._id.toString() === user_id.toString()) {
+    if (element.from._id.toString() === userId.toString()) {
       const other_user = element.to;
 
       // outgoing
