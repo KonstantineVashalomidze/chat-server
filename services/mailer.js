@@ -22,7 +22,6 @@ const sendEmail = async ({
                            text
                          }) => {
   try {
-      console.log(1, to, 2, from, 3, subject, 4, attachments, 5, text);
 
       const mailOptions = {
           from: from,

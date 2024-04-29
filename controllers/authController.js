@@ -198,46 +198,61 @@ exports.login = catchAsync(async (req, res, next) => {
   });
 });
 
-// Protect
+// This middleware function is responsible for protecting routes by verifying the user's JSON Web Token (JWT)
 exports.protect = catchAsync(async (req, res, next) => {
-  // 1) Getting token and check if it's there
+  // It first attempts to extract the JWT from the Authorization header or the jwt cookie
   let token;
+
   if (
     req.headers.authorization &&
     req.headers.authorization.startsWith("Bearer")
   ) {
+    // If the Authorization header is present and starts with "Bearer ", it means the JWT is sent using the
+    // Bearer scheme.
+    // The actual token is extracted by splitting the header value and taking the second part (after the space)
     token = req.headers.authorization.split(" ")[1];
   } else if (req.cookies.jwt) {
+    // If the Authorization header is not present, the middleware checks for the JWT in the cookies
+    // This allows for stateless authentication using either headers or cookies
     token = req.cookies.jwt;
   }
 
   if (!token) {
+    // If no token is found, it means the user is not authenticated
+    // In this case, a 401 Unauthorized response is sent with a message asking the user to log in
     return res.status(401).json({
-      message: "You are not logged in! Please log in to get access.",
+      message: "Log in first to get access.",
     });
   }
-  // 2) Verification of token
+  // If a token is found, it is verified using the JWT_SECRET environment variable
+  // The promisify function is likely used to convert the callback-based jwt.verify function to a Promise
   const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
 
-  console.log(decoded);
-
-  // 3) Check if user still exists
-
-  const this_user = await User.findById(decoded.userId);
-  if (!this_user) {
+  // After verifying the token, the middleware checks if the user associated with the token
+  // still exists in the database
+  // This is important in case the user was deleted after the token was issued
+  const associatedWithTokenUser = await User.findById(decoded.userId);
+  if (!associatedWithTokenUser) {
+    // If the user doesn't exist, it means the token is invalid (e.g., the user was deleted)
+    // In this case, a 401 Unauthorized response is sent with a message indicating the user no longer exists
     return res.status(401).json({
-      message: "The user belonging to this token does no longer exists.",
+      message: "User with that token doesn't exist anymore.",
     });
   }
-  // 4) Check if user changed password after the token was issued
-  if (this_user.changedPasswordAfter(decoded.iat)) {
+  // Even if the user exists, the middleware checks if the user changed their password after the token was issued
+  // If the password was changed, the token is considered invalid and cannot be used for authentication
+  if (associatedWithTokenUser.changedPasswordAfter(decoded.iat)) {
+    // If the user changed their password, a 401 Unauthorized response is sent with a
+    // message asking the user to log in again
     return res.status(401).json({
-      message: "User recently changed password! Please log in again.",
+      message: "Password was changed, please Log in again.",
     });
   }
 
-  // GRANT ACCESS TO PROTECTED ROUTE
-  req.user = this_user;
+
+  // If all checks pass, it means the user is authenticated and the token is valid
+  // The user object is attached to the request object for use in subsequent middleware functions or route handlers
+  req.user = associatedWithTokenUser;
   next();
 });
 

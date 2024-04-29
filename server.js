@@ -2,19 +2,10 @@ const mongoose = require("mongoose");
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
 dotenv.config({ path: "./config.env" });
-
-process.on("uncaughtException", (err) => {
-  console.log(err);
-  console.log("UNCAUGHT Exception! Shutting down ...");
-  process.exit(1); // Exit Code 1 indicates that a container shut down, either because of an application failure.
-});
-
 const app = require("./app");
-
 const http = require("http");
 const server = http.createServer(app);
-
-const { Server } = require("socket.io"); // Add this
+const { Server } = require("socket.io");
 const { promisify } = require("util");
 const User = require("./models/user");
 const FriendRequest = require("./models/friendRequest");
@@ -22,7 +13,15 @@ const OneToOneMessage = require("./models/oneToOneMessage");
 const AudioCall = require("./models/audioCall");
 const VideoCall = require("./models/videoCall");
 
-// Add this
+
+// In case of uncaught exceptions
+process.on("uncaughtException", (err) => {
+  console.log(err);
+  console.log("UNCAUGHT Exception! Shutting down ...");
+  process.exit(1); // Exit program
+});
+
+
 // Create an io server and allow for CORS from http://localhost:3001 with GET and POST methods
 const io = new Server(server, {
   cors: {
@@ -31,29 +30,30 @@ const io = new Server(server, {
   },
 });
 
+// Replace <PASSWORD> with actual password from env file
 const DB = process.env.DATABASE.replace(
   "<PASSWORD>",
   process.env.DATABASE_PASSWORD
 );
 
 mongoose
-  .connect(DB, {
-    // useNewUrlParser: true, // The underlying MongoDB driver has deprecated their current connection string parser. Because this is a major change, they added the useNewUrlParser flag to allow users to fall back to the old parser if they find a bug in the new parser.
-    // useCreateIndex: true, // Again previously MongoDB used an ensureIndex function call to ensure that Indexes exist and, if they didn't, to create one. This too was deprecated in favour of createIndex . the useCreateIndex option ensures that you are using the new function calls.
-    // useFindAndModify: false, // findAndModify is deprecated. Use findOneAndUpdate, findOneAndReplace or findOneAndDelete instead.
-    // useUnifiedTopology: true, // Set to true to opt in to using the MongoDB driver's new connection management engine. You should set this option to true , except for the unlikely case that it prevents you from maintaining a stable connection.
-  })
-  .then((con) => {
-    console.log("DB Connection successful");
-  });
+    .connect(DB, {
+      // useNewUrlParser: true,  // Parse MongoDB connection strings using new parser
+      // useCreateIndex: true,    // Automatically create indexes for any schema indexes defined in the schema
+      // useFindAndModify: false, // Use MongoDB's findOneAndUpdate() and findOneAndDelete() instead of findAndModify()
+      // useUnifiedTopology: true, // Use new Server Discovery and Monitoring engine
+    })
+    .then((con) => {
+      console.log("Connected to database...");
+    });
 
-const port = process.env.PORT || 8000;
+const port = process.env.PORT || 8000; // Port default 3001 or otherwise 8000
 
+// Server listens port 3001
 server.listen(port, () => {
-  console.log(`App running on port ${port} ...`);
+  console.log(`Server is listening port ${port} ...`);
 });
 
-// Add this
 // Listen for when the client connects via socket.io-client
 io.on("connection", async (socket) => {
   console.log(JSON.stringify(socket.handshake.query));
