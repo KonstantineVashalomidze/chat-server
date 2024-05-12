@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const oneToOneMessageSchema = new mongoose.Schema({
+const conversationSchema = new mongoose.Schema({
   participants: [
     {
       type: mongoose.Schema.ObjectId,
@@ -21,7 +21,7 @@ const oneToOneMessageSchema = new mongoose.Schema({
         type: String,
         enum: ["Text", "Media", "Document", "Link"],
       },
-      created_at: {
+      createdAt: {
         type: Date,
         default: Date.now(),
       },
@@ -35,8 +35,8 @@ const oneToOneMessageSchema = new mongoose.Schema({
   ],
 });
 
-const OneToOneMessage = new mongoose.model(
-  "OneToOneMessage",
-  oneToOneMessageSchema
+const Conversation = new mongoose.model(
+  "oneToOneMessage",
+  conversationSchema
 );
-module.exports = OneToOneMessage;
+module.exports = Conversation;

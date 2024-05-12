@@ -71,7 +71,7 @@ const userSchema = new mongoose.Schema({
       ref: "User",
     },
   ],
-  socket_id: {
+  socketId: {
     type: String
   },
   status: {
@@ -86,8 +86,6 @@ userSchema.pre("save", async function (next) {
 
   // Hash the otp with cost of 12
   this.otp = await bcrypt.hash(this.otp.toString(), 12);
-
-  console.log(this.otp.toString(), "FROM PRE SAVE HOOK");
 
   next();
 });

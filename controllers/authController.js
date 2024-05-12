@@ -20,7 +20,6 @@ const generateJWT = (userId) => jwt.sign({ userId }, process.env.JWT_SECRET);
 exports.signup = catchAsync(async (req, res, next) => {
   // Extract relevant fields from request body
   const { firstName, lastName, email, password } = req.body;
-
   // Sanitize the request body to include only specific fields
   const sanitizedObject = sanitizeObject(
     req.body,
@@ -115,7 +114,7 @@ exports.verifyOTP = catchAsync(async (req, res, next) => {
   if (!user) {
     return res.status(400).json({
       status: "error",
-      message: "Email is doesn't exist or OTP expired",
+      message: "Email doesn't exist or OTP expired",
     });
   }
 
@@ -274,7 +273,7 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   /* Send the reset token to the user's email */
   try {
     // Construct the reset URL using the reset token
-    const resetURL = `http://localhost:3001/auth/new-password?token=${resetToken}`;
+    const resetURL = `http://localhost:3000/auth/change-password?token=${resetToken}`;
 
     // Email the user with the reset URL
     mailService.sendEmail({

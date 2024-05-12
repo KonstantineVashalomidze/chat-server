@@ -134,7 +134,7 @@ module.exports = (name, link) => {
                                     <tr>
                                       <td style="padding-right: 0px;padding-left: 0px;" align="center">
     
-                                          width="106.4" />
+                  
     
                                       </td>
                                     </tr>

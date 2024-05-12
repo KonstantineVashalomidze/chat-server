@@ -9,7 +9,7 @@ const { Server } = require("socket.io");
 const { promisify } = require("util");
 const User = require("./models/user");
 const FriendRequest = require("./models/friendRequest");
-const OneToOneMessage = require("./models/oneToOneMessage");
+const Conversation = require("./models/conversation");
 const AudioCall = require("./models/audioCall");
 const VideoCall = require("./models/videoCall");
 
@@ -56,121 +56,131 @@ server.listen(port, () => {
 
 // Listen for when the client connects via socket.io-client
 io.on("connection", async (socket) => {
-  console.log(JSON.stringify(socket.handshake.query));
+
   const userId = socket.handshake.query["userId"];
-
-  console.log(`User connected ${socket.id}`);
-
   if (userId != null && Boolean(userId)) {
     try {
-      User.findByIdAndUpdate(userId, {
-        socket_id: socket.id,
+      const updated = await User.findByIdAndUpdate(userId, {
+        socketId: socket.id,
         status: "Online",
       });
+
     } catch (e) {
       console.log(e);
     }
   }
 
-  // We can write our socket event listeners in here...
-  socket.on("friend_request", async (data) => {
-    const to = await User.findById(data.to).select("socket_id");
-    const from = await User.findById(data.from).select("socket_id");
+  // Socket event listeners...
+  socket.on("friendRequest", async (data) => {
 
-    // create a friend request
+    // Find the recipient's socketId by querying the User model with the 'to' value from the received data
+    const to = await User.findById(data.to).select("socketId");
+    // Find the sender's socketId by querying the User model with the 'from' value from the received data
+    const from = await User.findById(data.from).select("socketId");
+
+    // Check if a friend request already exists between the sender and recipient (in either direction)
+    if (await FriendRequest.findOne({
+      $or: [
+        { sender: data.from, recipient: data.to },
+        { sender: data.to, recipient: data.from }
+      ]
+    }))
+    {
+      return;
+    }
+
+    // If no friend request exists, create a new friend request document in the database
     await FriendRequest.create({
       sender: data.from,
       recipient: data.to,
     });
-    // emit event request received to recipient
-    io.to(to?.socket_id).emit("new_friend_request", {
+
+    // Emit a 'newFriendRequest' event to the recipient's socket
+    // This event will notify the recipient that a new friend request has been received
+    io.to(to?.socketId).emit("newFriendRequest", {
       message: "New friend request received",
     });
-    io.to(from?.socket_id).emit("request_sent", {
+
+    // Emit a 'friendRequestSent' event to the sender's socket
+    // This event will notify the sender that their friend request has been sent successfully
+    io.to(from?.socketId).emit("friendRequestSent", {
       message: "Request Sent successfully!",
     });
   });
 
-  socket.on("accept_request", async (data) => {
+  socket.on("acceptFriendRequest", async (data) => {
     // accept friend request => add ref of each other in friends array
-    console.log(data);
-    const request_doc = await FriendRequest.findById(data.request_id);
+    const reqDoc = await FriendRequest.findById(data.requestId);
 
-    console.log(request_doc);
+    const sender = await User.findById(reqDoc.sender);
+    const receiver = await User.findById(reqDoc.recipient);
 
-    const sender = await User.findById(request_doc.sender);
-    const receiver = await User.findById(request_doc.recipient);
 
-    sender.friends.push(request_doc.recipient);
-    receiver.friends.push(request_doc.sender);
+    sender.friends.push(reqDoc.recipient);
+    receiver.friends.push(reqDoc.sender);
 
     await receiver.save({ new: true, validateModifiedOnly: true });
     await sender.save({ new: true, validateModifiedOnly: true });
 
-    await FriendRequest.findByIdAndDelete(data.request_id);
+    await FriendRequest.findByIdAndDelete(data.requestId);
 
     // delete this request doc
     // emit event to both of them
 
     // emit event request accepted to both
-    io.to(sender?.socket_id).emit("request_accepted", {
+    io.to(sender?.socketId).emit("friendRequestAccepted", {
       message: "Friend Request Accepted",
     });
-    io.to(receiver?.socket_id).emit("request_accepted", {
+    io.to(receiver?.socketId).emit("friendRequestAccepted", {
       message: "Friend Request Accepted",
     });
   });
 
-  socket.on("get_direct_conversations", async ({ userId }, callback) => {
-    const existing_conversations = await OneToOneMessage.find({
+  socket.on("getIndividualConversation", async ({ userId }, callback) => {
+    const existingConversations = await Conversation.find({
       participants: { $all: [userId] },
     }).populate("participants", "firstName lastName avatar _id email status");
 
     // db.books.find({ authors: { $elemMatch: { name: "John Smith" } } })
 
-    console.log(existing_conversations);
-
-    callback(existing_conversations);
+    console.log(existingConversations);
+    callback(existingConversations);
   });
 
-  socket.on("start_conversation", async (data) => {
+  socket.on("startConversation", async (data) => {
     // data: {to: from:}
 
     const { to, from } = data;
 
     // check if there is any existing conversation
 
-    const existing_conversations = await OneToOneMessage.find({
+    const existingConversations = await Conversation.find({
       participants: { $size: 2, $all: [to, from] },
     }).populate("participants", "firstName lastName _id email status");
 
-    console.log(existing_conversations[0], "Existing Conversation");
-
-    // if no => create a new OneToOneMessage doc & emit event "start_chat" & send conversation details as payload
-    if (existing_conversations.length === 0) {
-      let new_chat = await OneToOneMessage.create({
+    // if no => create a new oneToOneMessage doc & emit event "startChat" & send conversation details as payload
+    if (existingConversations.length === 0) {
+      let newChat = await Conversation.create({
         participants: [to, from],
       });
 
-      new_chat = await OneToOneMessage.findById(new_chat).populate(
+      newChat = await Conversation.findById(newChat).populate(
         "participants",
         "firstName lastName _id email status"
       );
 
-      console.log(new_chat);
-
-      socket.emit("start_chat", new_chat);
+      socket.emit("startChat", newChat);
     }
-    // if yes => just emit event "start_chat" & send conversation details as payload
+    // if yes => just emit event "startChat" & send conversation details as payload
     else {
-      socket.emit("start_chat", existing_conversations[0]);
+      socket.emit("startChat", existingConversations[0]);
     }
   });
 
-  socket.on("get_messages", async (data, callback) => {
+  socket.on("getMessages", async (data, callback) => {
     try {
-      const { messages } = await OneToOneMessage.findById(
-        data.conversation_id
+      const { messages } = await Conversation.findById(
+        data.conversationId
       ).select("messages");
       callback(messages);
     } catch (error) {
@@ -179,49 +189,47 @@ io.on("connection", async (socket) => {
   });
 
   // Handle incoming text/link messages
-  socket.on("text_message", async (data) => {
-    console.log("Received message:", data);
+  socket.on("textMessage", async (data) => {
 
     // data: {to, from, text}
 
-    const { message, conversation_id, from, to, type } = data;
+    const { message, conversationId, from, to, type } = data;
 
-    const to_user = await User.findById(to);
-    const from_user = await User.findById(from);
+    const toUser = await User.findById(to);
+    const fromUser = await User.findById(from);
 
-    // message => {to, from, type, created_at, text, file}
+    // message => {to, from, type, createdAt, text, file}
 
-    const new_message = {
+    const newMessage = {
       to: to,
       from: from,
       type: type,
-      created_at: Date.now(),
+      createdAt: Date.now(),
       text: message,
     };
 
-    // fetch OneToOneMessage Doc & push a new message to existing conversation
-    const chat = await OneToOneMessage.findById(conversation_id);
-    chat.messages.push(new_message);
+    // fetch oneToOneMessage Doc & push a new message to existing conversation
+    const chat = await Conversation.findById(conversationId);
+    chat.messages.push(newMessage);
     // save to db`
     await chat.save({ new: true, validateModifiedOnly: true });
 
     // emit incoming_message -> to user
 
-    io.to(to_user?.socket_id).emit("new_message", {
-      conversation_id,
-      message: new_message,
+    io.to(toUser?.socketId).emit("newMessage", {
+      conversationId,
+      message: newMessage,
     });
 
     // emit outgoing_message -> from user
-    io.to(from_user?.socket_id).emit("new_message", {
-      conversation_id,
-      message: new_message,
+    io.to(fromUser?.socketId).emit("newMessage", {
+      conversationId,
+      message: newMessage,
     });
   });
 
   // handle Media/Document Message
-  socket.on("file_message", (data) => {
-    console.log("Received message:", data);
+  socket.on("fileMessage", (data) => {
 
     // data: {to, from, text, file}
 
@@ -246,18 +254,17 @@ io.on("connection", async (socket) => {
 
   // -------------- HANDLE AUDIO CALL SOCKET EVENTS ----------------- //
 
-  // handle start_audio_call event
-  socket.on("start_audio_call", async (data) => {
+  // handle startAudioCall event
+  socket.on("startAudioCall", async (data) => {
     const { from, to, roomID } = data;
 
-    const to_user = await User.findById(to);
-    const from_user = await User.findById(from);
+    const toUser = await User.findById(to);
+    const fromUser = await User.findById(from);
 
-    console.log("to_user", to_user);
 
     // send notification to receiver of call
-    io.to(to_user?.socket_id).emit("audio_call_notification", {
-      from: from_user,
+    io.to(toUser?.socketId).emit("audioCallNotification", {
+      from: fromUser,
       roomID,
       streamID: from,
       userID: to,
@@ -265,13 +272,12 @@ io.on("connection", async (socket) => {
     });
   });
 
-  // handle audio_call_not_picked
-  socket.on("audio_call_not_picked", async (data) => {
-    console.log(data);
+  // handle audioCallNotPicked
+  socket.on("audioCallNotPicked", async (data) => {
     // find and update call record
     const { to, from } = data;
 
-    const to_user = await User.findById(to);
+    const toUser = await User.findById(to);
 
     await AudioCall.findOneAndUpdate(
       {
@@ -281,17 +287,17 @@ io.on("connection", async (socket) => {
     );
 
     // TODO => emit call_missed to receiver of call
-    io.to(to_user?.socket_id).emit("audio_call_missed", {
+    io.to(toUser?.socketId).emit("audioCallMissed", {
       from,
       to,
     });
   });
 
-  // handle audio_call_accepted
-  socket.on("audio_call_accepted", async (data) => {
+  // handle audioCallAccepted
+  socket.on("audioCallAccepted", async (data) => {
     const { to, from } = data;
 
-    const from_user = await User.findById(from);
+    const fromUser = await User.findById(from);
 
     // find and update call record
     await AudioCall.findOneAndUpdate(
@@ -302,14 +308,14 @@ io.on("connection", async (socket) => {
     );
 
     // TODO => emit call_accepted to sender of call
-    io.to(from_user?.socket_id).emit("audio_call_accepted", {
+    io.to(fromUser?.socketId).emit("audioCallAccepted", {
       from,
       to,
     });
   });
 
-  // handle audio_call_denied
-  socket.on("audio_call_denied", async (data) => {
+  // handle audioCallDenied
+  socket.on("audioCallDenied", async (data) => {
     // find and update call record
     const { to, from } = data;
 
@@ -320,17 +326,17 @@ io.on("connection", async (socket) => {
       { verdict: "Denied", status: "Ended", endedAt: Date.now() }
     );
 
-    const from_user = await User.findById(from);
+    const fromUser = await User.findById(from);
     // TODO => emit call_denied to sender of call
 
-    io.to(from_user?.socket_id).emit("audio_call_denied", {
+    io.to(fromUser?.socketId).emit("audioCallDenied", {
       from,
       to,
     });
   });
 
-  // handle user_is_busy_audio_call
-  socket.on("user_is_busy_audio_call", async (data) => {
+  // handle userIsBusyAudioCall
+  socket.on("userIsBusyAudioCall", async (data) => {
     const { to, from } = data;
     // find and update call record
     await AudioCall.findOneAndUpdate(
@@ -340,9 +346,9 @@ io.on("connection", async (socket) => {
       { verdict: "Busy", status: "Ended", endedAt: Date.now() }
     );
 
-    const from_user = await User.findById(from);
-    // TODO => emit on_another_audio_call to sender of call
-    io.to(from_user?.socket_id).emit("on_another_audio_call", {
+    const fromUser = await User.findById(from);
+    // TODO => emit onAnotherAudioCall to sender of call
+    io.to(fromUser?.socketId).emit("onAnotherAudioCall", {
       from,
       to,
     });
@@ -350,20 +356,17 @@ io.on("connection", async (socket) => {
 
   // --------------------- HANDLE VIDEO CALL SOCKET EVENTS ---------------------- //
 
-  // handle start_video_call event
-  socket.on("start_video_call", async (data) => {
+  // handle startVideoCall event
+  socket.on("startVideoCall", async (data) => {
     const { from, to, roomID } = data;
 
-    console.log(data);
 
-    const to_user = await User.findById(to);
-    const from_user = await User.findById(from);
-
-    console.log("to_user", to_user);
+    const toUser = await User.findById(to);
+    const fromUser = await User.findById(from);
 
     // send notification to receiver of call
-    io.to(to_user?.socket_id).emit("video_call_notification", {
-      from: from_user,
+    io.to(toUser?.socketId).emit("videoCallNotification", {
+      from: fromUser,
       roomID,
       streamID: from,
       userID: to,
@@ -371,13 +374,12 @@ io.on("connection", async (socket) => {
     });
   });
 
-  // handle video_call_not_picked
-  socket.on("video_call_not_picked", async (data) => {
-    console.log(data);
+  // handle videoCallNotPicked
+  socket.on("videoCallNotPicked", async (data) => {
     // find and update call record
     const { to, from } = data;
 
-    const to_user = await User.findById(to);
+    const toUser = await User.findById(to);
 
     await VideoCall.findOneAndUpdate(
       {
@@ -387,17 +389,17 @@ io.on("connection", async (socket) => {
     );
 
     // TODO => emit call_missed to receiver of call
-    io.to(to_user?.socket_id).emit("video_call_missed", {
+    io.to(toUser?.socketId).emit("videoCallMissed", {
       from,
       to,
     });
   });
 
-  // handle video_call_accepted
-  socket.on("video_call_accepted", async (data) => {
+  // handle videoCallAccepted
+  socket.on("videoCallAccepted", async (data) => {
     const { to, from } = data;
 
-    const from_user = await User.findById(from);
+    const fromUser = await User.findById(from);
 
     // find and update call record
     await VideoCall.findOneAndUpdate(
@@ -408,14 +410,14 @@ io.on("connection", async (socket) => {
     );
 
     // TODO => emit call_accepted to sender of call
-    io.to(from_user?.socket_id).emit("video_call_accepted", {
+    io.to(fromUser?.socketId).emit("videoCallAccepted", {
       from,
       to,
     });
   });
 
-  // handle video_call_denied
-  socket.on("video_call_denied", async (data) => {
+  // handle videoCallDenied
+  socket.on("videoCallDenied", async (data) => {
     // find and update call record
     const { to, from } = data;
 
@@ -426,17 +428,17 @@ io.on("connection", async (socket) => {
       { verdict: "Denied", status: "Ended", endedAt: Date.now() }
     );
 
-    const from_user = await User.findById(from);
+    const fromUser = await User.findById(from);
     // TODO => emit call_denied to sender of call
 
-    io.to(from_user?.socket_id).emit("video_call_denied", {
+    io.to(fromUser?.socketId).emit("videoCallDenied", {
       from,
       to,
     });
   });
 
-  // handle user_is_busy_video_call
-  socket.on("user_is_busy_video_call", async (data) => {
+  // handle userIsBusyVideoCall
+  socket.on("userIsBusyVideoCall", async (data) => {
     const { to, from } = data;
     // find and update call record
     await VideoCall.findOneAndUpdate(
@@ -446,15 +448,16 @@ io.on("connection", async (socket) => {
       { verdict: "Busy", status: "Ended", endedAt: Date.now() }
     );
 
-    const from_user = await User.findById(from);
-    // TODO => emit on_another_video_call to sender of call
-    io.to(from_user?.socket_id).emit("on_another_video_call", {
+    const fromUser = await User.findById(from);
+    // TODO => emit onAnotherVideoCall to sender of call
+    io.to(fromUser?.socketId).emit("onAnotherVideoCall", {
       from,
       to,
     });
   });
 
   // -------------- HANDLE SOCKET DISCONNECTION ----------------- //
+
 
   socket.on("end", async (data) => {
     // Find user by ID and set status as offline
